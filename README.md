@@ -214,3 +214,114 @@ _([[1,2]]).flatten() instanceof _; // => false
 回值进行处理: `chainResult(this, func.apply(_, args))`.
 
 还有一些函数单独作了处理,如 `pop`, `push`, `reverse`, 等等,此处不再详谈.
+
+## 接前文
+
+```js
+  // Export the Underscore object for **Node.js**, with
+  // backwards-compatibility for their old module API. If we're in
+  // the browser, add `_` as a global object.
+  // (`nodeType` is checked to ensure that `module`
+  // and `exports` are not HTML elements.)
+  if (typeof exports != 'undefined' && !exports.nodeType) {
+    if (typeof module != 'undefined' && !module.nodeType && module.exports) {
+      exports = module.exports = _;
+    }
+    exports._ = _;
+  } else {
+    root._ = _;
+  }
+
+  // Current version.
+  _.VERSION = '1.8.3';
+```
+
+上文较好理解，判断不同的平台，导出 `_` 变量。
+
+```js
+  // Internal function that returns an efficient (for current engines) version
+  // of the passed-in callback, to be repeatedly applied in other Underscore
+  // functions.
+  var optimizeCb = function(func, context, argCount) {
+    if (context === void 0) return func;
+    switch (argCount == null ? 3 : argCount) {
+      case 1: return function(value) {
+        return func.call(context, value);
+      };
+      // The 2-parameter case has been omitted only because no current consumers
+      // made use of it.
+      case 3: return function(value, index, collection) {
+        return func.call(context, value, index, collection);
+      };
+      case 4: return function(accumulator, value, index, collection) {
+        return func.call(context, accumulator, value, index, collection);
+      };
+    }
+    return function() {
+      return func.apply(context, arguments);
+    };
+  };
+```
+
+要理解 `optimizeCb` 的作用，需要先理解 underscore.js 提供的 context 切换的功
+能。我们首先查看 `_.each` 的文档：
+
+```
+each: _.each(list, iteratee, [context]) Alias: forEach
+```
+
+它接收额外的参数 `context`。而它的作用是在 `iteratee` 函数中将 `this` 指向
+`context`。下面的是一个
+[StackOverflow](http://stackoverflow.com/questions/4946456/underscore-js-eachlist-iterator-context-what-is-context)
+的例子：
+
+```js
+var someOtherArray = ["name","patrick","d","w"];
+
+_.each([1, 2, 3], function(num) { 
+    // 函数内， this “等于” someOtherArray
+
+    alert( this[num] ); // num is the value from the array being iterated
+                        //    so this[num] gets the item at the "num" index of
+                        //    someOtherArray.
+}, someOtherArray);
+```
+
+关于 context 的具体应用可以参考 [这篇文章](https://medium.com/@jedschneider/the-secret-life-of-context-in-underscore-and-lodash-722ce3e24608#.l4kxy31d5)
+
+为了切换 `this` 的实际值，我们需要做如下的工作：
+
+```js
+var origin = function(arg ...) {
+    ...
+}
+
+var withContext = orig.call(context, arg ...);
+```
+
+即通过 `function.call(...)` 的方式来调用函数，以传入新的 `this` 值。而
+`optimizeCb` 函数便是 underscore.js 内部用于完成这个转换的辅助函数。
+
+`optimizeCb` 函数中判断了目标函数 `func` 的参数个数，返回不同的函数，如果参数
+的个数不是 1～4，则采用通用的逻辑 `func.apply` 代替 `func.call`。似乎对当前的
+引擎而言，`func.call` 要稍快于 `func.apply`。 [这个网
+页](https://jsperf.com/function-calls-direct-vs-apply-vs-call-vs-bind/6) 用于
+测试各种调用方式的效率，在我本机测试下 `call` 要稍快于（7％） `apply`
+
+```js
+  // A mostly-internal function to generate callbacks that can be applied
+  // to each element in a collection, returning the desired result — either
+  // `identity`, an arbitrary callback, a property matcher, or a property accessor.
+  var cb = function(value, context, argCount) {
+    if (value == null) return _.identity;
+    if (_.isFunction(value)) return optimizeCb(value, context, argCount);
+    if (_.isObject(value)) return _.matcher(value);
+    return _.property(value);
+  };
+
+  _.iteratee = function(value, context) {
+    return cb(value, context, Infinity);
+  };
+```
+
+`cb` 几乎只被内部函数使用，用途是根据 `value` 的类型生成回调函数。
