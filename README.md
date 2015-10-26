@@ -204,7 +204,7 @@ _([[1,2]]).flatten() instanceof _; // => false
       };
     });
   };
-  
+
   // Add all of the Underscore functions to the wrapper object.
   _.mixin(_);
 ```
@@ -278,7 +278,7 @@ each: _.each(list, iteratee, [context]) Alias: forEach
 ```js
 var someOtherArray = ["name","patrick","d","w"];
 
-_.each([1, 2, 3], function(num) { 
+_.each([1, 2, 3], function(num) {
     // 函数内， this “等于” someOtherArray
 
     alert( this[num] ); // num is the value from the array being iterated
@@ -325,3 +325,112 @@ var withContext = orig.call(context, arg ...);
 ```
 
 `cb` 几乎只被内部函数使用，用途是根据 `value` 的类型生成回调函数。
+
+```js
+  // Similar to ES6's rest param (http://ariya.ofilabs.com/2013/03/es6-and-rest-parameter.html)
+  // This accumulates the arguments passed into an array, after a given index.
+  var restArgs = function(func, startIndex) {
+    startIndex = startIndex == null ? func.length - 1 : +startIndex;
+    return function() {
+      var length = Math.max(arguments.length - startIndex, 0);
+      var rest = Array(length);
+      for (var index = 0; index < length; index++) {
+        rest[index] = arguments[index + startIndex];
+      }
+      switch (startIndex) {
+        case 0: return func.call(this, rest);
+        case 1: return func.call(this, arguments[0], rest);
+        case 2: return func.call(this, arguments[0], arguments[1], rest);
+      }
+      var args = Array(startIndex + 1);
+      for (index = 0; index < startIndex; index++) {
+        args[index] = arguments[index];
+      }
+      args[startIndex] = rest;
+      return func.apply(this, args);
+    };
+  };
+```
+
+`restArgs` 也只在内部使用，它用来实现类似其它语言（及ES6）的 `rest` 参数。rest
+参数的作用是将多余的参数以数组（Array）的方式保存为最后一个参数。
+
+```js
+function test(a, b, rest) {
+    ...
+}
+
+test(1, 2) => a: 1, b: 2, rest: [],
+test(1, 2, 3) => a: 1, b: 2, rest: [3],
+test(1, 2, 3, 4) => a: 1, b: 2, rest: [3, 4],
+```
+
+当然，JavaScript 并不直接支持（ES6 前）这样的语法，所以 underscore.js 自己实现
+了一个（JavaScript 真强大啊！）。有了 `restArgs` 我的就能写成：
+
+```js
+function orig(a, b, rest) {
+    ...
+}
+
+var test = restArgs(orig, 2);
+
+test(1, 2) => a: 1, b: 2, rest: [],
+test(1, 2, 3) => a: 1, b: 2, rest: [3],
+test(1, 2, 3, 4) => a: 1, b: 2, rest: [3, 4],
+```
+
+```js
+  // An internal function for creating a new object that inherits from another.
+  var baseCreate = function(prototype) {
+    if (!_.isObject(prototype)) return {};
+    if (nativeCreate) return nativeCreate(prototype);
+    Ctor.prototype = prototype;
+    var result = new Ctor;
+    Ctor.prototype = null;
+    return result;
+  };
+```
+
+`baseCreate` 与 `Object.create(...)` 等价，只是老版本的 JavaScript 没有
+`Object.create` 函数，因此用它来做兼容。
+
+```js
+  var property = function(key) {
+    return function(obj) {
+      return obj == null ? void 0 : obj[key];
+    };
+  };
+
+  // Helper for collection methods to determine whether a collection
+  // should be iterated as an array or as an object.
+  // Related: http://people.mozilla.org/~jorendorff/es6-draft.html#sec-tolength
+  // Avoids a very nasty iOS 8 JIT bug on ARM-64. #2094
+  var MAX_ARRAY_INDEX = Math.pow(2, 53) - 1;
+  var getLength = property('length');
+  var isArrayLike = function(collection) {
+    var length = getLength(collection);
+    return typeof length == 'number' && length >= 0 && length <= MAX_ARRAY_INDEX;
+  };
+```
+
+`isArrayLike` 用来判断一个 collection 是否是“类数组”的，那什么是“类数组”呢？
+需要满足两个条件：
+
+1. 元素可以通过编号访问
+2. 元素个数通过 `length` 属性得到。
+
+“类数组” 不要求有数组（Array）提供的函数，如 `push`, `forEach` 及 `indexOf`. 例如：
+
+```
+var arrayLikeCollection = {}
+arrayLikeCollection[0] = 0
+arrayLikeCollection[1] = 10;
+arrayLikeCollection[2] = 20;
+arrayLikeCollection[3] = 30;
+arrayLikeCollection.length = 4;
+```
+
+所以，underscore.js 中定义的 `isArrayLike` 并没有真正检查条件1。条件 2 在先前
+的版本中是通过 `obj.length === +obj.length` 完成的，但似乎在某些情况下有 BUG，
+于是改成了当前的版本。
