@@ -434,3 +434,104 @@ arrayLikeCollection.length = 4;
 所以，underscore.js 中定义的 `isArrayLike` 并没有真正检查条件1。条件 2 在先前
 的版本中是通过 `obj.length === +obj.length` 完成的，但似乎在某些情况下有 BUG，
 于是改成了当前的版本。
+
+## Collection 函数
+
+本节中讲的是一些 collection 的辅助函数，如 `map`, `each`, `reduce` 等等。这些
+函数常用于函数式编程语言（如 Haskell）中，它们能更好地描述 collection 的一些
+操作。在编程中，我们要学习利用这些函数，学会从 collection 的整体角度进行思考，
+而不以 collection 中的元素作为处理对象。
+
+```js
+  // The cornerstone, an `each` implementation, aka `forEach`.
+  // Handles raw objects in addition to array-likes. Treats all
+  // sparse array-likes as if they were dense.
+  _.each = _.forEach = function(obj, iteratee, context) {
+    iteratee = optimizeCb(iteratee, context);
+    var i, length;
+    if (isArrayLike(obj)) {
+      for (i = 0, length = obj.length; i < length; i++) {
+        iteratee(obj[i], i, obj);
+      }
+    } else {
+      var keys = _.keys(obj);
+      for (i = 0, length = keys.length; i < length; i++) {
+        iteratee(obj[keys[i]], keys[i], obj);
+      }
+    }
+    return obj;
+  };
+
+  // Return the results of applying the iteratee to each element.
+  _.map = _.collect = function(obj, iteratee, context) {
+    iteratee = cb(iteratee, context);
+    var keys = !isArrayLike(obj) && _.keys(obj),
+        length = (keys || obj).length,
+        results = Array(length);
+    for (var index = 0; index < length; index++) {
+      var currentKey = keys ? keys[index] : index;
+      results[index] = iteratee(obj[currentKey], currentKey, obj);
+    }
+    return results;
+  };
+```
+
+`_.each` 函数是 collection 相关函数的基石，它的作用是将函数 `iteratee` 应用于
+collection 中的每个元素，而 `map` 函数还 `iteratee` 每次调用的结果收集，以一个
+数组返回。
+
+注意的是 `_.each` 与 `_.map` 同时支持以 “类数组”及 collection。
+
+```js
+  // Create a reducing function iterating left or right.
+  var createReduce = function(dir) {
+    // Optimized iterator function as using arguments.length
+    // in the main function will deoptimize the, see #1991.
+    var reducer = function(obj, iteratee, memo, initial) {
+      var keys = !isArrayLike(obj) && _.keys(obj),
+          length = (keys || obj).length,
+          index = dir > 0 ? 0 : length - 1;
+      if (!initial) {
+        memo = obj[keys ? keys[index] : index];
+        index += dir;
+      }
+      for (; index >= 0 && index < length; index += dir) {
+        var currentKey = keys ? keys[index] : index;
+        memo = iteratee(memo, obj[currentKey], currentKey, obj);
+      }
+      return memo;
+    };
+
+    return function(obj, iteratee, memo, context) {
+      var initial = arguments.length >= 3;
+      return reducer(obj, optimizeCb(iteratee, context, 4), memo, initial);
+    };
+  };
+
+  // **Reduce** builds up a single result from a list of values, aka `inject`,
+  // or `foldl`.
+  _.reduce = _.foldl = _.inject = createReduce(1);
+
+  // The right-associative version of reduce, also known as `foldr`.
+  _.reduceRight = _.foldr = createReduce(-1);
+```
+
+与 `_.map` 一样，`_.reduce` 也是函数式编程语言中常用的辅助函数，上面的代码较
+乱，下面是一个更为简单的实现，用以演示核心的逻辑。
+
+```js
+function reduce(coll, func, init_val) {
+  var i = 0;
+  for (; i < coll.length; i++) {
+    init_val = func(init_val, coll[i]);
+  }
+  return init_val;
+}
+var sum = reduce([1, 2, 3], function(memo, num){ return memo + num; }, 0);
+// => 6
+```
+
+这里的实现使用了两个闭包，[这篇文章](http://web.jobbole.com/83872/) 认为这里
+闭包的作用是持久化变量。但我认为，这里将逻辑分成两个函数的目的，如注释所说的，
+是为了提高执行的效率。即使主逻辑中不包含对`arguments.length`的使用，但具体为何
+能提高效率，还有待学习。
