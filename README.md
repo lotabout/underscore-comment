@@ -477,7 +477,7 @@ arrayLikeCollection.length = 4;
 ```
 
 `_.each` 函数是 collection 相关函数的基石，它的作用是将函数 `iteratee` 应用于
-collection 中的每个元素，而 `map` 函数还 `iteratee` 每次调用的结果收集，以一个
+collection 中的每个元素，而 `map` 函数将 `iteratee` 每次调用的结果收集，以一个
 数组返回。
 
 注意的是 `_.each` 与 `_.map` 同时支持以 “类数组”及 collection。
@@ -535,3 +535,67 @@ var sum = reduce([1, 2, 3], function(memo, num){ return memo + num; }, 0);
 闭包的作用是持久化变量。但我认为，这里将逻辑分成两个函数的目的，如注释所说的，
 是为了提高执行的效率。即使主逻辑中不包含对`arguments.length`的使用，但具体为何
 能提高效率，还有待学习。
+
+`_.find`, `_.filter`, `_.reject`, `_.every`, `_.some` 等函数中规中矩，唯一要
+注意的是它们是如何同时处理 collection 和“类数组”的情况。
+
+```js
+  var group = function(behavior, partition) {
+    return function(obj, iteratee, context) {
+      var result = partition ? [[], []] : {};
+      iteratee = cb(iteratee, context);
+      _.each(obj, function(value, index) {
+        var key = iteratee(value, index, obj);
+        behavior(result, value, key);
+      });
+      return result;
+    };
+  };
+```
+
+`group` 函数稍微难理解一些，它只在 underscore 内部使用。函数的主要复杂性来源于
+参数 `partition`，它用来标记 `group` 返回的函数返回结果的类型。我认为这是一个
+不恰当的抽象，一个更直观的抽象应该是（这里不考虑 context 切换的问题）：
+
+```js
+var simpleGroup = function(behavior) {
+    return function(obj, iteratee) {
+        var result = {};
+        _.each(obj, function(value, index) {
+            var key = iteratee(value, index, obj);
+            behavior(result, value, key);
+        });
+        return result;
+    };
+};
+```
+
+即对于 `obj` 中的每个元素，通过调用 `iteratee` 函数得到一个分组的依据 `key`，
+再调用 `behavior` 对返回的结果进行组装。如 `_.groupBy` 函数：
+
+```js
+  // Groups the object's values by a criterion. Pass either a string attribute
+  // to group by, or a function that returns the criterion.
+  _.groupBy = group(function(result, value, key) {
+    if (_.has(result, key)) result[key].push(value); else result[key] = [value];
+  });
+```
+
+它的 `behavior` 函数就是将 `iteratee` 调用后的结果 `value` 按 `key` 进行分组。
+
+上面提到，`group` 由于支持 `partition` 带来了额外的复杂性，具体的调用如下：
+
+```js
+  _.partition = group(function(result, value, pass) {
+    result[pass ? 0 : 1].push(value);
+  }, true);
+```
+
+而其实该函数可以由 `_.groupBy` 实现：
+
+```js
+_.partition = function(obj, iteratee) {
+    var result = _.groupBy(obj, iteratee);
+    return [result[true], result[false]];
+}
+```
