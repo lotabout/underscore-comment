@@ -480,7 +480,30 @@ arrayLikeCollection.length = 4;
 collection 中的每个元素，而 `map` 函数将 `iteratee` 每次调用的结果收集，以一个
 数组返回。
 
-注意的是 `_.each` 与 `_.map` 同时支持以 “类数组”及 collection。
+注意的是 `_.each` 与 `_.map` 同时支持以 “类数组”及 collection。在
+underscore.js 中，通常将 object 抽象成 “广义的数组”。广义的数组包含一个键
+数组 `keys` 和一个值数组 `values`，它们一一对应，而由于它们是数组，也因此可以
+通过索引进行访问。对于普通的“类数组”，键数组中包含的就是对应值的索引。
+
+所以，在涉及到索引相关的运算时，underscore.js 通常会先获取键数组，如 `_.map`
+函数中的：
+
+```js
+    // 获取键数组
+    var keys = !isArrayLike(obj) && _.keys(obj),
+    length = (keys || obj).length,
+
+    // 获取键值
+    var currentKey = keys ? keys[index] : index;
+```
+
+相应的，如果涉及值运算时，underscore.js 通常会先取得它的值数组：
+
+```js
+    obj = isArrayLike(obj) ? obj : _.values(obj);
+```
+
+这个模式中 underscore.js 中被多次运用。
 
 ```js
   // Create a reducing function iterating left or right.
@@ -599,3 +622,27 @@ _.partition = function(obj, iteratee) {
     return [result[true], result[false]];
 }
 ```
+
+```js
+  // Generator function to create the findIndex and findLastIndex functions
+  var createPredicateIndexFinder = function(dir) {
+    return function(array, predicate, context) {
+      predicate = cb(predicate, context);
+      var length = getLength(array);
+      var index = dir > 0 ? 0 : length - 1;
+      for (; index >= 0 && index < length; index += dir) {
+        if (predicate(array[index], index, array)) return index;
+      }
+      return -1;
+    };
+  };
+
+  // Returns the first index on an array-like that passes a predicate test
+  _.findIndex = createPredicateIndexFinder(1);
+  _.findLastIndex = createPredicateIndexFinder(-1);
+```
+
+`createPredicateIndexFinder` 根据指定的步长 `dir` 创建遍历的函数。而实际上它在
+被用来创建 `_.findIndex` 和 `_.findLastIndex`，但无疑，这增加了许多阅读上的复
+杂度。当一个逻辑没有被很多使用时，是否需要独立成一个单独的模块，值得思考与讨
+论。
