@@ -646,3 +646,100 @@ _.partition = function(obj, iteratee) {
 被用来创建 `_.findIndex` 和 `_.findLastIndex`，但无疑，这增加了许多阅读上的复
 杂度。当一个逻辑没有被很多使用时，是否需要独立成一个单独的模块，值得思考与讨
 论。
+
+## 函数相关的函数
+```js
+  // Determines whether to execute a function as a constructor
+  // or a normal function with the provided arguments
+  var executeBound = function(sourceFunc, boundFunc, context, callingContext, args) {
+    if (!(callingContext instanceof boundFunc)) return sourceFunc.apply(context, args);
+    var self = baseCreate(sourceFunc.prototype);
+    var result = sourceFunc.apply(self, args);
+    if (_.isObject(result)) return result;
+    return self;
+  };
+
+  // Create a function bound to a given object (assigning `this`, and arguments,
+  // optionally). Delegates to **ECMAScript 5**'s native `Function.bind` if
+  // available.
+  _.bind = restArgs(function(func, context, args) {
+    if (!_.isFunction(func)) throw new TypeError('Bind must be called on a function');
+    var bound = restArgs(function(callArgs) {
+      return executeBound(func, bound, context, this, args.concat(callArgs));
+    });
+    return bound;
+  });
+```
+
+这里，我们首先回顾一下 `restArgs(func, startIndex)` 默认的使用方法。当参数
+`startIndex` 为空时，它默认为 `func` 参数个数减一。所以有：
+
+```
+function orig(a, b, rest) {
+    ...
+}
+
+var test = restArgs(orig);
+
+test(1, 2) => a: 1, b: 2, rest: [],
+test(1, 2, 3) => a: 1, b: 2, rest: [3],
+test(1, 2, 3, 4) => a: 1, b: 2, rest: [3, 4],
+// 即此时 test 的多余参数都将收集成一个数组，作为 orig 调用里的 rest 参数
+```
+
+知道了这点就不难看懂 `_.bind` 与 `executeBound`
+函数。还有一点需要深追的是条件判断：`(!(callingContext instanceof
+boundFunc))`，它的作用是什么呢？
+
+其实 `_.bind` 是要实现 ECMA5 中的 `Function.bind` 类似的功能，我们从 [MDN](https://developer.mozilla.org/en/docs/Web/JavaScript/Reference/Global_objects/Function/bind) 上截取 `bind` 函数的一个使用实例：
+
+```js
+this.x = 9; 
+var module = {
+  x: 81,
+  getX: function() { return this.x; }
+};
+
+module.getX(); // 81
+
+var retrieveX = module.getX;
+retrieveX(); // 9, because in this case, "this" refers to the global object
+
+// Create a new function with 'this' bound to module
+//New programmers (like myself) might confuse the global var getX with module's property getX
+var boundGetX = retrieveX.bind(module);
+// var boundGetX = _.bind(retrieveX, module); // underscore.js 相应的替代方法。
+boundGetX(); // 81
+```
+
+上述例子在执行时，`callingContext` 指向的是全局的 `Window`（浏览器中）。而只有
+当我们创建一个新的该函数的对象时，才会出现 `callingContent instanceof
+boundFunc` 的情形：
+
+```js
+var instance = new boundGetX(); // 或者
+boundGetX.apply(instance);
+```
+
+这是由 `new` 操作符的特性导致的。一般来说，获取一个函数（类）的一个实例“只
+能”通过 `new` 操作符来完成。`new func(...)` 执行了三个步骤：
+
+1. 创建一个新的对象，该对象继承了 `func.prototype`；
+2. 以新创建的对象为 `this` 调用构造函数 `func`；
+3. 如果 `func` 有返回值则返回它，若没有，则返回第1步创建的对象。
+
+以代码来说就是：
+
+```js
+var newObj = Object.create(func.prototype);
+var result = func.apply(newObj, ...args...);
+if (result instanceof object) {
+    return result;
+} else {
+    return newObj;
+}
+```
+
+因此，在上述例子中 `func.apply` 的过程中，`this` 指针必须要指向 `newObj` 而不
+能指向先前绑定的 `context` 值。所以 `executeBound` 判断了这一情况，并实现了类
+似 `new` 操作符的逻辑。
