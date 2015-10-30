@@ -694,7 +694,7 @@ boundFunc))`，它的作用是什么呢？
 其实 `_.bind` 是要实现 ECMA5 中的 `Function.bind` 类似的功能，我们从 [MDN](https://developer.mozilla.org/en/docs/Web/JavaScript/Reference/Global_objects/Function/bind) 上截取 `bind` 函数的一个使用实例：
 
 ```js
-this.x = 9; 
+this.x = 9;
 var module = {
   x: 81,
   getX: function() { return this.x; }
@@ -743,3 +743,70 @@ if (result instanceof object) {
 因此，在上述例子中 `func.apply` 的过程中，`this` 指针必须要指向 `newObj` 而不
 能指向先前绑定的 `context` 值。所以 `executeBound` 判断了这一情况，并实现了类
 似 `new` 操作符的逻辑。
+
+```js
+  // Partially apply a function by creating a version that has had some of its
+  // arguments pre-filled, without changing its dynamic `this` context. _ acts
+  // as a placeholder by default, allowing any combination of arguments to be
+  // pre-filled. Set `_.partial.placeholder` for a custom placeholder argument.
+  _.partial = restArgs(function(func, boundArgs) {
+    var placeholder = _.partial.placeholder;
+    var bound = function() {
+      var position = 0, length = boundArgs.length;
+      var args = Array(length);
+      for (var i = 0; i < length; i++) {
+        args[i] = boundArgs[i] === placeholder ? arguments[position++] : boundArgs[i];
+      }
+      while (position < arguments.length) args.push(arguments[position++]);
+      return executeBound(func, bound, this, this, args);
+    };
+    return bound;
+  });
+
+  _.partial.placeholder = _;
+```
+
+`partial` 函数类似于科里化（curry），但功能更加强大。关键在于支持占位符。如：
+
+```js
+var subtract = function(a, b) { return b - a; };
+subFrom20 = _.partial(subtract, _, 20);
+subFrom20(5);
+// => 15
+```
+
+并且，由于要支持占位符，所以每次执行 `_.partial` 返回的函数，它的内部都要访问
+`_.partial` 定义时的参数，无形中降低了一些效率。即：
+
+```js
+args[i] = boundArgs[i] === placeholder ? arguments[position++] : boundArgs[i];
+```
+
+`_.throttle` 和 `_.debounce` 函数都比较有意思。其中 `_.throttle` 将对一个函数
+进行包裹，返回一个函数，当我们迅速调用该函数时，在一个的时间范围内，至多被调用
+一次。可以实验以下代码：
+
+```js
+var inc = (function() {
+  var x = 0;
+  return function() {
+    x++;
+    console.log("out>> ", x);
+    return x;
+  }
+}());
+
+var yyy = _.throttle(inc, 3000);
+
+// 迅速调用 n 次
+yyy(); // => out>> 1, 1
+yyy(); // => 1
+yyy(); // => 1
+yyy(); // 3s 后 => out>> 2, 2
+```
+
+可以看到在 3s 内它只会被调用一次，且在这个时间范围内，调用直接返回前一次调用
+得到的结果，而不实际执行函数。
+
+`_.debound(func, wait)` 正好相反，如果执行了某个函数后，在 `wait` 时间内，若再
+调用该函数，则不执行它，直到 `wait` 时间后才继续执行。
