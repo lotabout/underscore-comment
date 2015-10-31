@@ -809,4 +809,80 @@ yyy(); // 3s 后 => out>> 2, 2
 得到的结果，而不实际执行函数。
 
 `_.debound(func, wait)` 正好相反，如果执行了某个函数后，在 `wait` 时间内，若再
-调用该函数，则不执行它，直到 `wait` 时间后才继续执行。
+调用该函数，则不执行它，并且将等待时间置零，直到 `wait` 时间后才继续执行。
+
+## Object 相关函数
+
+```js
+  // Keys in IE < 9 that won't be iterated by `for key in ...` and thus missed.
+  var hasEnumBug = !{toString: null}.propertyIsEnumerable('toString');
+  var nonEnumerableProps = ['valueOf', 'isPrototypeOf', 'toString',
+                      'propertyIsEnumerable', 'hasOwnProperty', 'toLocaleString'];
+
+  var collectNonEnumProps = function(obj, keys) {
+    var nonEnumIdx = nonEnumerableProps.length;
+    var constructor = obj.constructor;
+    var proto = _.isFunction(constructor) && constructor.prototype || ObjProto;
+
+    // Constructor is a special case.
+    var prop = 'constructor';
+    if (_.has(obj, prop) && !_.contains(keys, prop)) keys.push(prop);
+
+    while (nonEnumIdx--) {
+      prop = nonEnumerableProps[nonEnumIdx];
+      if (prop in obj && obj[prop] !== proto[prop] && !_.contains(keys, prop)) {
+        keys.push(prop);
+      }
+    }
+  };
+```
+
+> In IE < 9, JScript will skip over any property in any object where there is a same-named property in the object's prototype chain that has the DontEnum attribute.
+
+在 IE < 9 中，若 object 中的某个属性在它的原形链 (prototype chain)
+上有一个同名的，具有 DontEnum 特性的属性，则在 `for key in object`
+枚举时将被忽略。
+
+上述代码就是用来处理这个情形。注意代码中是如何手工判断 `obj` 是否含有键 `prop` ：
+
+```js
+      if (prop in obj && obj[prop] !== proto[prop] && !_.contains(keys, prop)) {
+        keys.push(prop);
+      }
+```
+
+```js
+  // An internal function for creating assigner functions.
+  var createAssigner = function(keysFunc, defaults) {
+    return function(obj) {
+      var length = arguments.length;
+      if (defaults) obj = Object(obj);
+      if (length < 2 || obj == null) return obj;
+      for (var index = 1; index < length; index++) {
+        var source = arguments[index],
+            keys = keysFunc(source),
+            l = keys.length;
+        for (var i = 0; i < l; i++) {
+          var key = keys[i];
+          if (!defaults || obj[key] === void 0) obj[key] = source[key];
+        }
+      }
+      return obj;
+    };
+  };
+
+  // Extend a given object with all the properties in passed-in object(s).
+  _.extend = createAssigner(_.allKeys);
+```
+
+`createAssigner` 看似较为复杂，但只要了解了它如何使用，那其中的逻辑也不难理解
+了。我们看 `_.extend` 的使用例子：
+
+```js
+_.extend({name: 'moe'}, {age: 50});
+// => {name: 'moe', age: 50}
+```
+
+即，它以接收多个 object 作为参数，将第2个及之后的 object 的属性不断加入/覆盖到
+第一个 object 中并返回。因此 `createAssigner` 的核心就是两层循环，外层对参数
+进行迭代，内层对该参数的所有属性进行迭代。
