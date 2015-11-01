@@ -886,3 +886,41 @@ _.extend({name: 'moe'}, {age: 50});
 即，它以接收多个 object 作为参数，将第2个及之后的 object 的属性不断加入/覆盖到
 第一个 object 中并返回。因此 `createAssigner` 的核心就是两层循环，外层对参数
 进行迭代，内层对该参数的所有属性进行迭代。
+
+```js
+  // Internal pick helper function to determine if `obj` has key `key`.
+  var keyInObj = function(value, key, obj) {
+    return key in obj;
+  };
+
+  // Return a copy of the object only containing the whitelisted properties.
+  _.pick = restArgs(function(obj, keys) {
+    var result = {}, iteratee = keys[0];
+    if (obj == null) return result;
+    if (_.isFunction(iteratee)) {
+      if (keys.length > 1) iteratee = optimizeCb(iteratee, keys[1]);
+      keys = _.allKeys(obj);
+    } else {
+      iteratee = keyInObj;
+      keys = flatten(keys, false, false);
+      obj = Object(obj);
+    }
+    for (var i = 0, length = keys.length; i < length; i++) {
+      var key = keys[i];
+      var value = obj[key];
+      if (iteratee(value, key, obj)) result[key] = value;
+    }
+    return result;
+  });
+```
+
+`_.pick` 的复杂性也是由于额外的支持引起的。由于它可以接受一个函数作为参数，用
+作判断一个键是否选取的依据，因此它的代码中就要对参数 `keys` 是函数的情况进行
+判断。如果 `keys` 只是普通的键名，则 `iteratee` 退化为 `keyInObj`。额外的一点
+是，`_.pick` 除了接收函数作参数，同时还支持改变该函数的 `context`，函数中的
+
+```js
+if (keys.length > 1) iteratee = optimizeCb(iteratee, keys[1]);
+```
+
+就是起这个作用的。
