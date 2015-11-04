@@ -987,3 +987,166 @@ console.log(instance.attr); // => 20
 
 最后一个问题是 `_.prototype.each` 是在哪里设置的呢？答案是 `_.mixin` 函数中，
 上文已有讨论。
+
+## 相等判断
+
+（不知道 Equality 怎么翻译）
+
+这部分是用来学习 Javascript 内部判等机制的好材料。这里只涉及一个函数 `eq` 用来
+深度判等，举例来说，两个数组相等，当且仅当包含同样个数，且每个元素都相等，由于
+元素可能还是数组，所以要递归（深度）地进行判断。
+
+先来个链接：[判等表格](https://dorey.github.io/JavaScript-Equality-Table/)
+
+```js
+  eq = function(a, b, aStack, bStack) {
+    // Identical objects are equal. `0 === -0`, but they aren't identical.
+    // See the [Harmony `egal` proposal](http://wiki.ecmascript.org/doku.php?id=harmony:egal).
+    if (a === b) return a !== 0 || 1 / a === 1 / b;
+    // A strict comparison is necessary because `null == undefined`.
+    if (a == null || b == null) return a === b;
+    // `NaN`s are equivalent, but non-reflexive.
+    if (a !== a) return b !== b;
+    // Exhaust primitive checks
+    var type = typeof a;
+    if (type !== 'function' && type !== 'object' && typeof b != 'object') return false;
+    return deepEq(a, b, aStack, bStack);
+  };
+```
+
+可见，几乎所有的原子型数据都可以通过 `===` 进行判断。具体的判断方法参见 [ECMA6
+Strict Equality
+Comparison](http://www.ecma-international.org/ecma-262/6.0/index.html#sec-strict-equality-comparison)
+
+个人觉得使用 `x === y` 有几点值得一说：
+
+1. `===` 会首先判断 `x` 与 `y` 的类型，若不相同，则返回 `false`。
+2. `===` 会判断 `x` 与 `y` 的值（原子类型），若相等，则返回 `true`，反之
+`false`.
+3. `NaN` 不等于任意数字，另 `-0 === +0`。
+4. 对于非原子类型，当且仅当它们是指向同一个 object 时才 `===`。
+
+接下去的 `deepEq` 函数很长，我们逐步分析。
+
+```js
+
+  // Internal recursive comparison function for `isEqual`.
+  deepEq = function(a, b, aStack, bStack) {
+    // Unwrap any wrapped objects.
+    if (a instanceof _) a = a._wrapped;
+    if (b instanceof _) b = b._wrapped;
+    // Compare `[[Class]]` names.
+    var className = toString.call(a);
+    if (className !== toString.call(b)) return false;
+    switch (className) {
+      // Strings, numbers, regular expressions, dates, and booleans are compared by value.
+      case '[object RegExp]':
+      // RegExps are coerced to strings for comparison (Note: '' + /a/i === '/a/i')
+      case '[object String]':
+        // Primitives and their corresponding object wrappers are equivalent; thus, `"5"` is
+        // equivalent to `new String("5")`.
+        return '' + a === '' + b;
+      case '[object Number]':
+        // `NaN`s are equivalent, but non-reflexive.
+        // Object(NaN) is equivalent to NaN
+        if (+a !== +a) return +b !== +b;
+        // An `egal` comparison is performed for other numeric values.
+        return +a === 0 ? 1 / +a === 1 / b : +a === +b;
+      case '[object Date]':
+      case '[object Boolean]':
+        // Coerce dates and booleans to numeric primitive values. Dates are compared by their
+        // millisecond representations. Note that invalid dates with millisecond representations
+        // of `NaN` are not equivalent.
+        return +a === +b;
+    }
+    ...
+  };
+```
+
+虽然在 `eq` 函数中判断了原子型数据，但由于我们可能创建了 underscore.js 的对
+象，如 `_(1)` 或 `_("abc")`，它们并不是原子型数据，所以上面的代码相当于自己实
+现了 `===` 的逻辑。根据 `a` `b`的类型进行相应的判断。
+
+```js
+    var areArrays = className === '[object Array]';
+```
+
+判断一个对象是否是 'Array' 的正确方法。
+
+```js
+    if (!areArrays) {
+      if (typeof a != 'object' || typeof b != 'object') return false; // 1
+
+      // Objects with different constructors are not equivalent, but `Object`s or `Array`s
+      // from different frames are.
+      var aCtor = a.constructor, bCtor = b.constructor;
+      if (aCtor !== bCtor && !(_.isFunction(aCtor) && aCtor instanceof aCtor &&
+                               _.isFunction(bCtor) && bCtor instanceof bCtor)
+                          && ('constructor' in a && 'constructor' in b)) {
+        return false;
+      }
+    }
+```
+
+上文代码应是有些 Bug，因为函数并非数组，所以会进入该 `if` 语句，但由于它们的
+类型并非 `object` 所以直接返回 `false`，即所有函数都不相等。考虑下面的测试用
+例：
+
+```js
+var tmp = function () {}
+
+_.isEqual(tmp, tmp); // => false, 似乎有些版本的 underscore.js 返回 true
+
+var x = _(tmp);
+var y = _(tmp);
+
+_.isEqual(x, y); // => false
+```
+
+所以结果是所有的函数都不相等。
+
+接下来重要的是下面这个代码：
+
+```js
+    // Assume equality for cyclic structures. The algorithm for detecting cyclic
+    // structures is adapted from ES 5.1 section 15.12.3, abstract operation `JO`.
+
+    // Initializing stack of traversed objects.
+    // It's done here since we only need them for objects and arrays comparison.
+    aStack = aStack || [];
+    bStack = bStack || [];
+    var length = aStack.length;
+    while (length--) {
+      // Linear search. Performance is inversely proportional to the number of
+      // unique nested structures.
+      if (aStack[length] === a) return bStack[length] === b;
+    }
+```
+
+上面的代码是用来检测环形数据结构的，什么意思呢？就是对象中直接或间接地引用了
+自己本身，如：
+
+```js
+// 直接引用
+var a = [];
+a[0] = a;
+
+// 间接引用
+var x = [];
+var y = [x];
+x[0] = y;
+```
+
+上述检测环形数据的原理是：只要是环形数据，意味着在递归获取子结构时，在某个时
+候，得到的子结构会与之前访问过的某一结构完全一致。如：
+
+```
+1 -> 2 -> 3 -> 4 -> 5
+          ^         |
+          |         v
+          8 <- 7 <- 6
+```
+
+在第一次访问 3 时，`aStack` 中保存了整个环（3 -> 4 -> 5 -> 6 -> 7 -> 8 ->
+...），所以第二次访问 3 时，仍然得到这个环（3 -> 4 -> 5 -> 6 -> 7 -> 8 ->
+...），此时，条件 `if(aStack[length] === a)` 就会通过，从而检测出该环。
