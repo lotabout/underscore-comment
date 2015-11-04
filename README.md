@@ -924,3 +924,66 @@ if (keys.length > 1) iteratee = optimizeCb(iteratee, keys[1]);
 ```
 
 就是起这个作用的。
+
+```js
+  // Invokes interceptor with the obj, and then returns obj.
+  // The primary purpose of this method is to "tap into" a method chain, in
+  // order to perform operations on intermediate results within the chain.
+  _.tap = function(obj, interceptor) {
+    interceptor(obj);
+    return obj;
+  };
+```
+
+前面提到了链式调用，`_.tap(func)` 的作用是将 `func` 应用到链式调用的中间结果。
+看 underscore.js 官方的例子：
+
+```js
+_.chain([1,2,3,200])
+  .filter(function(num) { return num % 2 == 0; })
+  .tap(alert)
+  .map(function(num) { return num * num })
+  .value();
+=> // [2, 200] (alerted)
+=> [4, 40000]
+```
+
+从 `_.tap` 的实现中我们注意到，几乎所有 underscore.js 内置的函数的第一个参数
+都是 `obj`。而这样定义的函数我们又能以两种方式调用，如 `_.each` 函数：
+
+```js
+_.each([1,2,3], function (x) { console.log(x);}); // 1
+_([1,2,3]).each(function (x) { console.log(x);}); // 2
+// _([1,2,3]).each([3,4,5], function (x) { console.log(x);}); // 3 出错
+```
+
+而 `_.each = function(obj, iteratee, context) {...}` 包含三个参数，为什么第 2
+种调用可行，而第三种调用则出错呢？
+
+原因是：1、2 两种调用的根本就不是一个函数！
+
+首先要注意的是 `_` 变量本身是一个函数，而在 Javascript 中，函数同时承载着
+“类”的功能。因此要区分两种赋值方式：`_.attr = ...` 及 `_.prototype[attr] = ...`
+第一种是为变量（对象）本身添加属性，第二种是为原型（类）添加属性。区分以下例
+子：
+
+```
+var underscore = function () {}
+underscore.attr = 10;
+underscore.prototype['attr'] = 20;
+
+console.log(underscore.attr); // => 10
+
+var instance = new underscore();
+console.log(instance.attr); // => 20
+```
+
+所以，当我们试图访问变量（对象）的某个属性时，它会首先寻找变量本身的属性，若不
+存在，则通过原型链（prototype chain）进行查找。
+
+回到 `_.each` 的例子上，`_.each([1,2,3], func...)` 的调用的方法是变量（对象）
+`_` 的属性，而 `_([1,2,3]).each(...)` 调用的是变量（对象）`_([1,2,3])` 的属
+性，而由于该变量并没有 `each` 属性，所以是调用的是 `_.prototype.each` 函数。
+
+最后一个问题是 `_.prototype.each` 是在哪里设置的呢？答案是 `_.mixin` 函数中，
+上文已有讨论。
