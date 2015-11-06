@@ -1150,3 +1150,36 @@ x[0] = y;
 在第一次访问 3 时，`aStack` 中保存了整个环（3 -> 4 -> 5 -> 6 -> 7 -> 8 ->
 ...），所以第二次访问 3 时，仍然得到这个环（3 -> 4 -> 5 -> 6 -> 7 -> 8 ->
 ...），此时，条件 `if(aStack[length] === a)` 就会通过，从而检测出该环。
+
+## 类型判断
+
+接下去是一些类型判断的函数如 `isArray`，`isObject` 等。主要的判断依据是
+`toString` 函数。
+
+根据 [ELS6](http://ecma262-5.com/ELS5_HTML.htm#Section_15.2.4.2)，
+`Object.prototype.toString` 会输出调用时 `this` 所指对象的内部 `[[Class]]` 属
+性。输出 `"[object" + [[Class]] + "]"`。
+
+例如，在创建数组对象时，对象的 `[[Class]]` 属性会被设置为 `Array`，故对数组调
+用 `toString` 时将输出 `[object Array]`。
+
+这里要注意的是 `toString` 的调用方法：`toString.call(obj)` 而非
+`toString(obj)`。这就涉及到函数调用 `toString(obj)` 时 `this` 的值究竟是什
+么？它的规则如下：
+
+函数是否由 `new` 调用？
+1. 是 -> `this` 指向新建的对象
+2. 否 -> 函数是否由 `dot(.)` 进行调用？
+    1. 是 -> `this` 指向 dot 之前的对象
+    2. 否 -> `this` 指向全局对象 window
+
+请参见 [图解 Javascript this 指向什么](http://web.jobbole.com/84046/)
+
+测试下面代码的结果：
+
+```js
+toString("abc");      // => "[object Undefined]"
+toString.call("abc"); // => "[object String]"
+```
+
+## 辅助函数
