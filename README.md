@@ -1168,6 +1168,7 @@ x[0] = y;
 么？它的规则如下：
 
 函数是否由 `new` 调用？
+
 1. 是 -> `this` 指向新建的对象
 2. 否 -> 函数是否由 `dot(.)` 进行调用？
     1. 是 -> `this` 指向 dot 之前的对象
@@ -1182,4 +1183,220 @@ toString("abc");      // => "[object Undefined]"
 toString.call("abc"); // => "[object String]"
 ```
 
-## 辅助函数
+## template
+
+模板函数是 underscore.js 中个人觉得最有趣的函数。
+
+```js
+  // JavaScript micro-templating, similar to John Resig's implementation.
+  // Underscore templating handles arbitrary delimiters, preserves whitespace,
+  // and correctly escapes quotes within interpolated code.
+  // NB: `oldSettings` only exists for backwards compatibility.
+  _.template = function(text, settings, oldSettings) {
+    if (!settings && oldSettings) settings = oldSettings;
+    settings = _.defaults({}, settings, _.templateSettings);
+
+    // Combine delimiters into one regular expression via alternation.
+    var matcher = RegExp([
+      (settings.escape || noMatch).source,
+      (settings.interpolate || noMatch).source,
+      (settings.evaluate || noMatch).source
+    ].join('|') + '|$', 'g');
+
+    // Compile the template source, escaping string literals appropriately.
+    var index = 0;
+    var source = "__p+='";
+    text.replace(matcher, function(match, escape, interpolate, evaluate, offset) {
+      source += text.slice(index, offset).replace(escapeRegExp, escapeChar);
+      index = offset + match.length;
+
+      if (escape) {
+        source += "'+\n((__t=(" + escape + "))==null?'':_.escape(__t))+\n'";
+      } else if (interpolate) {
+        source += "'+\n((__t=(" + interpolate + "))==null?'':__t)+\n'";
+      } else if (evaluate) {
+        source += "';\n" + evaluate + "\n__p+='";
+      }
+
+      // Adobe VMs need the match returned to produce the correct offset.
+      return match;
+    });
+    source += "';\n";
+
+    // If a variable is not specified, place data values in local scope.
+    if (!settings.variable) source = 'with(obj||{}){\n' + source + '}\n';
+
+    source = "var __t,__p='',__j=Array.prototype.join," +
+      "print=function(){__p+=__j.call(arguments,'');};\n" +
+      source + 'return __p;\n';
+
+    var render;
+    try {
+      render = new Function(settings.variable || 'obj', '_', source);
+    } catch (e) {
+      e.source = source;
+      throw e;
+    }
+
+    var template = function(data) {
+      return render.call(this, data, _);
+    };
+
+    // Provide the compiled source as a convenience for precompilation.
+    var argument = settings.variable || 'obj';
+    template.source = 'function(' + argument + '){\n' + source + '}';
+
+    return template;
+  };
+```
+
+当然在使用之前要明白它的 [使用方法](http://underscorejs.org/#template)。简单来
+说就是预先定义好模板，之后就可以用它来生成字符串。
+
+模板中支持三种替换类型：值替换（interpolate）`<%= ... %>`；执行替换
+（evaluate） `<% ... %>` 及转义替换（escape） `<%- ... %>`。
+
+下面的例子取自官网：
+
+> var compiled = _.template("hello: <%= name %>");
+> compiled({name: 'moe'});
+> => "hello: moe"
+>
+> var template = _.template("<b><%- value %></b>");
+> template({value: '<script>'});
+> => "<b>&lt;script&gt;</b>"
+>
+> var compiled = _.template("<% print('Hello ' + epithet); %>");
+> compiled({epithet: "stooge"});
+> => "Hello stooge"
+
+在试图看懂这段代码之前，我们先来了解 Javascript 中的
+[eval](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/eval)
+函数。它的作用是将输入的字符串作为代码执行。举个“看似”有用的例子：
+
+```
+function gen_getter_setter(obj, field) {
+    var field_path = obj + '.' + field;
+
+    return 'function get_' + field + '() {\n'
+        + 'return ' + field_path + ';\n'
+        + '}\n'
+        + 'function set_' + field + '(val) {\n'
+        + field_path + '= val;\n'
+        + '}';
+}
+
+var object = {a: 10};
+
+eval(gen_getter_setter('object', 'a'));
+
+get_a(); // => 10
+set_a(20);
+object.a; // => 20
+```
+
+例子中 `gen_getter_setter('object', 'a')` 生成的字符串如下：
+
+```
+"function get_a() {
+return object.a;
+}
+function set_a(val) {
+object.a= val;
+}"
+```
+
+也即我们生成了一个字符串，但字符串的内容完全符合 Javascript 的语法，因此
+`eval` 可以根据 Javascript 的语法来解析该字符串。可以参考 Lisp 中的 Macro
+（宏）。
+
+说了这么多，可是代码里根本没有 `eval` 啊？好吧，是的，只是代码里通过 `new
+Function(...)` 创建新的函数对象时，也是传递字符串作为函数的函数体（函数的正
+文）。所以要明确的就是我们可以构建字符串，将字符串作为代码来执行。
+
+因此，`_.template` 函数的大部分功能就是在构造 `render` 函数的函数体。我们先撇
+开对 `source` 的构建，先看 `render` 的框架部分（重新调整了格式）：
+
+```js
+function (obj, _) {
+  var __t,
+      __p = '',
+      __j = Array.prototype.join,
+      print = function () {
+        __p += __j.call(arguments, '');
+      };
+
+  with(obj || {}) {
+      ...
+      the content of source
+      ...
+  }
+
+  return __p;
+}
+```
+
+从上面的代码可以看出，生成的代码根据参数 `obj` 进行操作（具体操作未知），最终
+将代码存放在变量 `__p` 中返回。
+
+所以具体的操作就要看 `source` 中的内容，而它又是根据模板字符串 `text` 生成的。
+下面再贴出主要逻辑的代码，以便于查看：
+
+```js
+    var source = "__p+='";
+    text.replace(matcher, function(match, escape, interpolate, evaluate, offset) {
+      source += text.slice(index, offset).replace(escapeRegExp, escapeChar);
+      index = offset + match.length;
+
+      if (escape) {
+        source += "'+\n((__t=(" + escape + "))==null?'':_.escape(__t))+\n'";
+      } else if (interpolate) {
+        source += "'+\n((__t=(" + interpolate + "))==null?'':__t)+\n'";
+      } else if (evaluate) {
+        source += "';\n" + evaluate + "\n__p+='";
+      }
+
+      // Adobe VMs need the match returned to produce the correct offset.
+      return match;
+    });
+    source += "';\n";
+```
+
+这段代码将匹配 `_.template` 支持的三种模式，即 `<%= ... %>`、`<% .. %>`及`<%-
+.. %>` 并将其替换成相应的代码。
+
+例如：对于模板字符串 `"<b><%- value %></b>"`，则会进入 `escape` 分支（注意会调用不止一次），生成相应的代码放在之前的上下文中如下：
+
+
+```js
+function (obj, _) {
+  var __t,
+      __p = '',
+      __j = Array.prototype.join,
+      print = function () {
+        __p += __j.call(arguments, '');
+      };
+
+  // the content of source
+
+  with(obj || {}) {
+      __p += '<b>'
+        + ((__t = (value)) == null ? '' : _.escape(__t))
+        + ''
+        + '</b>';
+  }
+
+  return __p;
+}
+```
+
+理解 `_.template` 代码要注意区分生成字符串的代码与生成的字符串。相信跟着例子
+调试几次就能够完全理解它了。
+
+# 写在后面
+
+阅读 underscore.js 的代码花费了许多时间，但受益颇丰。通过深究其中的许多细节，
+让我对 Javascript 的原理有了更深的理解和掌握。相信只要读者静下心来，仔细钻研
+其中的细节，定有收获。
+
+文章写得匆忙，也只是作为个人的笔记，若有错误不足之处，敬请批评指正。
