@@ -1258,17 +1258,19 @@ toString.call("abc"); // => "[object String]"
 
 下面的例子取自官网：
 
-> var compiled = _.template("hello: <%= name %>");
-> compiled({name: 'moe'});
-> => "hello: moe"
->
-> var template = _.template("<b><%- value %></b>");
-> template({value: '<script>'});
-> => "<b>&lt;script&gt;</b>"
->
-> var compiled = _.template("<% print('Hello ' + epithet); %>");
-> compiled({epithet: "stooge"});
-> => "Hello stooge"
+```
+ var compiled = _.template("hello: <%= name %>");
+ compiled({name: 'moe'});
+ => "hello: moe"
+
+ var template = _.template("<b><%- value %></b>");
+ template({value: '<script>'});
+ => "<b>&lt;script&gt;</b>"
+
+ var compiled = _.template("<% print('Hello ' + epithet); %>");
+ compiled({epithet: "stooge"});
+ => "Hello stooge"
+```
 
 在试图看懂这段代码之前，我们先来了解 Javascript 中的
 [eval](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/eval)
